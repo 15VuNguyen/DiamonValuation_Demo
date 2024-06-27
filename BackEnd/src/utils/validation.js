@@ -1,3 +1,4 @@
+import { validationResult } from 'express-validator'
 import { EntityError, ErrorWithStatus } from '../models/Errors.js'
 
 export const validate = (validation) => {
