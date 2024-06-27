@@ -364,6 +364,23 @@ class UsersService {
       message: USERS_MESSAGES.CHANGE_PASSWORD_SUCCESS // trong message.ts thêm CHANGE_PASSWORD_SUCCESS: 'Change password success'
     }
   }
+
+  async refreshToken({ user_id, verify, refresh_token, exp }) {
+    //tạo ra access và refresh token mới
+    const [access_token, new_refresh_token] = await Promise.all([
+      this._signAccessToken({ user_id, verify }),
+      this._signRefreshToken({ user_id, verify, exp })
+    ])
+    const { iat } = await this._decodeRefreshToken(refresh_token)
+    //vì một người đăng nhập ở nhiều nơi khác nhau, nên họ sẽ có rất nhiều document trong collection refreshTokens
+    //ta không thể dùng user_id để tìm document cần update, mà phải dùng token, đọc trong RefreshToken.schema.ts
+    await databaseService.refreshTokens.deleteOne({ token: refresh_token }) //xóa refresh
+    //insert lại document mới
+    await databaseService.refreshTokens.insertOne(
+      new RefreshToken({ user_id: new ObjectId(user_id), token: new_refresh_token, exp, iat })
+    )
+    return { access_token: access_token, refresh_token: new_refresh_token }
+  }
 }
 
 const usersService = new UsersService()
