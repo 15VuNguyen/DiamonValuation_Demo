@@ -20,6 +20,7 @@ import {
   getProfileController,
   loginController,
   logoutController,
+  oAuthController,
   refreshController,
   registerController,
   resendEmailVerifyController,
@@ -114,5 +115,7 @@ g}
 //khi access_token hết hạn thì frontend gọi route refresh_token để lấy access_token mới
 // và refresh_token có thời hạn bằng thời hạn cũ
 usersRouter.post('/refresh-token', refreshTokenValidator, wrapAsync(refreshController))
+
+usersRouter.get('/oauth/google', wrapAsync(oAuthController))
 
 export default usersRouter

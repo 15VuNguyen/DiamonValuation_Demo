@@ -8,6 +8,8 @@ import UserSchema from '../models/schemas/User.schema.js'
 import databaseService from './database.service.js'
 import { USERS_MESSAGES } from '../constants/messages.js'
 import nodemailer from 'nodemailer'
+import axios from 'axios'
+import HTTP_STATUS from '../constants/httpStatus.js'
 
 // const { DatabaseService } = require('./database.service')
 
@@ -380,6 +382,102 @@ class UsersService {
       new RefreshToken({ user_id: new ObjectId(user_id), token: new_refresh_token, exp, iat })
     )
     return { access_token: access_token, refresh_token: new_refresh_token }
+  }
+
+  //_getOAuthGoogleToken dùng code nhận đc để yêu cầu google tạo id_token
+  async _getOAuthGoogleToken(code) {
+    const body = {
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID, //khai báo trong .env bằng giá trị trong file json
+      client_secret: process.env.GOOGLE_CLIENT_SECRET, //khai báo trong .env bằng giá trị trong file json
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI, //khai báo trong .env bằng giá trị trong file json
+      grant_type: 'authorization_code'
+    }
+    //giờ ta gọi api của google, truyền body này lên để lấy id_token
+    //ta dùng axios để gọi api `npm i axios`
+    const { data } = await axios.post(`https://oauth2.googleapis.com/token`, body, {
+      headers: {
+        'Content-Type': 'application/json' //kiểu truyền lên là form
+      }
+    }) //nhận đc response nhưng đã rã ra lấy data
+    return {
+      access_token: data.access_token,
+      id_token: data.id_token
+    }
+  }
+
+  //dùng id_token để lấy thông tin của người dùng
+  async _getGoogleUserInfo(access_token, id_token) {
+    //đường dẫn giúp verify access_token và id_token lấy thông tin người dùng
+    const { data } = await axios.get(`https://www.googleapis.com/oauth2/v3/userinfo`, {
+      params: {
+        access_token,
+        alt: 'json'
+      },
+      headers: {
+        Authorization: `Bearer ${id_token}`
+      }
+    })
+    //ta chỉ lấy những thông tin cần thiết
+    return {
+      id: data.id,
+      email: data.email,
+      email_verified: data.email_verified,
+      name: data.name,
+      given_name: data.given_name,
+      family_name: data.family_name,
+      picture: data.picture,
+      locale: data.locale
+    }
+  }
+
+  async oAuth(code) {
+    //dùng code lấy bộ token từ google
+    const { access_token, id_token } = await this._getOAuthGoogleToken(code)
+    const userInfor = await this._getGoogleUserInfo(access_token, id_token)
+    //kiểm tra xem user đã verify email chưa
+    if (!userInfor.email_verified) {
+      throw new ErrorWithStatus({
+        message: USERS_MESSAGES.EMAIL_NOT_VERIFIED, // trong message.ts thêm GMAIL_NOT_VERIFIED: 'Gmail not verified'
+        status: HTTP_STATUS.BAD_REQUEST //thêm trong HTTP_STATUS BAD_REQUEST:400
+      })
+    }
+    //kiểm tra email đã tồn tại chưa tồn tại trong database của mình chưa
+    const user = await databaseService.users.findOne({ email: userInfor.email })
+    //nếu có thì nghĩa là client đăng nhập
+    if (user) {
+      const [access_token, refresh_token] = await this._signAccessAndRefreshTokens({
+        user_id: user._id.toString(),
+        verify: user.verify
+      }) //thêm user_id và verify
+      //lưu refresh token vào database
+      const { exp, iat } = await this._decodeRefreshToken(refresh_token)
+      await databaseService.refreshTokens.insertOne(
+        new RefreshToken({ user_id: user._id, token: refresh_token, exp, iat })
+      )
+      return {
+        access_token,
+        refresh_token,
+        new_user: 0, //đây là user cũ
+        verify: user.verify
+      }
+    } else {
+      //random string password
+      const password = Math.random().toString(36).slice(1, 15)
+      //chưa tồn tại thì cho tạo mới, hàm register(đã viết trước đó) trả về access và refresh token
+      const data = await this.register({
+        email: userInfor.email,
+        name: userInfor.name,
+        password: password,
+        confirm_password: password,
+        date_of_birth: new Date().toISOString()
+      })
+      return {
+        ...data,
+        new_user: 1, //đây là user mới
+        verify: UserVerifyStatus.Unverified
+      }
+    }
   }
 }
 

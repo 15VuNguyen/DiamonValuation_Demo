@@ -178,3 +178,10 @@ export const refreshController = async (req, res, next) => {
     result
   })
 }
+
+export const oAuthController = async (req, res, next) => {
+  const { code } = req.query // lấy code từ query params
+  const { access_token, refresh_token, new_user } = await usersService.oAuth(code) //oAuth tạo sau
+  const urlRedirect = `${process.env.CLIENT_REDIRECT_CALLBACK}?access_token=${access_token}&refresh_token=${refresh_token}&new_user=${new_user}`
+  return res.redirect(urlRedirect)
+}
