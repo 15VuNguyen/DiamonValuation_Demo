@@ -192,6 +192,134 @@ class UsersService {
     )
     return { access_token, refresh_token }
   }
+
+  async resendEmailVerify(user_id, email) {
+    //tạo lại email_verify_token
+    const email_verify_token = await this._signEmailVerifyToken({
+      user_id,
+      verify: UserVerifyStatus.Unverified
+    })
+    //update lại user
+    await databaseService.users.updateOne({ _id: new ObjectId(user_id) }, [
+      {
+        $set: {
+          email_verify_token,
+          updated_at: '$$NOW'
+        }
+      }
+    ])
+    //giả gửi mail, nếu đc thì làm visa (aws, ses)
+    //chỗ này sẽ gửi mail
+    //test gửi mail
+    let transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_APP, // Thay thế bằng email của bạn
+        pass: process.env.EMAIL_PASSWORD_APP // Thay thế bằng mật khẩu của bạn
+      }
+    })
+
+    // Cấu hình và gửi email
+    const verifyURL = `http://localhost:${process.env.PORT}/users/verify-email?email_verify_token=${email_verify_token}` // Đường dẫn xác nhận email
+    let mailOptions = {
+      from: process.env.EMAIL_APP, // Thay thế bằng email của bạn
+      to: email, // Địa chỉ email của người nhận (người dùng đăng ký)
+      subject: 'Xác nhận đăng ký',
+      text: 'Nội dung email xác nhận đăng ký...', // Hoặc sử dụng `html` để tạo nội dung email dạng HTML
+      html: `<p>Nhấn vào <a href="${verifyURL}">đây</a> để xác nhận đăng ký.</p>` // Sử dụng HTML để tạo nội dung email
+    }
+
+    // Gửi email
+    transporter.sendMail(mailOptions, function (error, info) {
+      if (error) {
+        console.log(error)
+        // Xử lý lỗi gửi email ở đây
+      } else {
+        console.log('Email sent: ' + info.response)
+        // Xử lý thành công gửi email ở đây
+      }
+    })
+    //test gửi mail
+    console.log(email_verify_token)
+    return { message: USERS_MESSAGES.RESEND_EMAIL_VERIFY_SUCCESS }
+  }
+
+  async forgotPassword({ user_id, verify }) {
+    //tạo ra forgot_password_token
+    const forgot_password_token = await this._signForgotPasswordToken({
+      user_id,
+      verify
+    })
+    //update lại user
+    await databaseService.users.updateOne({ _id: new ObjectId(user_id) }, [
+      {
+        $set: {
+          forgot_password_token,
+          updated_at: '$$NOW'
+        }
+      }
+    ])
+    //giả gửi mail, nếu đc thì làm visa (aws, ses)
+    //gửi mail chỗ này
+    console.log(forgot_password_token)
+    return { message: USERS_MESSAGES.CHECK_EMAIL_TO_RESET_PASSWORD }
+    //check email to reset password
+  }
+
+  async resetPassword({ user_id, password }) {
+    //dựa vào user_id tìm user và cập nhật lại password
+    await databaseService.users.updateOne({ _id: new ObjectId(user_id) }, [
+      {
+        $set: {
+          password: hashPassword(password),
+          forgot_password_token: '',
+          updated_at: '$$NOW'
+        }
+      }
+    ])
+    return { message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS }
+  }
+
+  async getMe(user_id) {
+    //dựa vào user_id tìm user
+    const user = await databaseService.users.findOne(
+      { _id: new ObjectId(user_id) },
+      {
+        projection: {
+          password: 0,
+          email_verify_token: 0,
+          forgot_password_token: 0
+        }
+      }
+    )
+    return user
+  }
+
+  async updateMe(user_id, payload) {
+    const _payload = payload.date_of_birth ? { ...payload, date_of_birth: new Date(payload.date_of_birth) } : payload
+
+    //cập nhật _payload lên db
+    const user = await databaseService.users.findOneAndUpdate(
+      { _id: new ObjectId(user_id) },
+      [
+        {
+          $set: {
+            ..._payload,
+            updated_at: '$$NOW'
+          }
+        }
+      ],
+      {
+        returnDocument: 'after',
+        projection: {
+          password: 0,
+          email_verify_token: 0,
+          forgot_password_token: 0
+        }
+      }
+    )
+    return user
+  }
 }
 
 const usersService = new UsersService()

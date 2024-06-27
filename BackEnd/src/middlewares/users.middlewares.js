@@ -9,6 +9,9 @@ import databaseService from '../services/database.service.js'
 import { verifyToken } from '../utils/jwt.js'
 import capitalize from 'lodash'
 import JsonWebTokenError from 'jsonwebtoken'
+import { ObjectId } from 'mongodb'
+import { UserVerifyStatus } from '../constants/enums.js'
+import { REGEX_USERNAME } from '../constants/regex.js'
 
 const passwordSchema = {
   notEmpty: {
@@ -94,6 +97,21 @@ const dateOfBirthSchema = {
       strictSeparator: true
     },
     errorMessage: USERS_MESSAGES.DATE_OF_BIRTH_BE_ISO8601
+  }
+}
+
+const imageSchema = {
+  optional: true,
+  isString: {
+    errorMessage: USERS_MESSAGES.IMAGE_URL_MUST_BE_A_STRING
+  },
+  trim: true,
+  isLength: {
+    options: {
+      min: 1,
+      max: 400
+    },
+    errorMessage: USERS_MESSAGES.IMAGE_URL_LENGTH_MUST_BE_FROM_1_TO_400
   }
 }
 
@@ -330,5 +348,202 @@ export const emailVerifyTokenValidator = validate(
       }
     },
     ['query']
+  )
+)
+
+export const forgotPasswordValidator = validate(
+  checkSchema(
+    {
+      email: {
+        notEmpty: {
+          errorMessage: USERS_MESSAGES.EMAIL_IS_REQUIRED
+        },
+        isEmail: {
+          errorMessage: USERS_MESSAGES.EMAIL_IS_INVALID
+        },
+        trim: true,
+        custom: {
+          options: async (value, { req }) => {
+            const user = await databaseService.users.findOne({ email: value })
+            if (user === null) {
+              throw new ErrorWithStatus({
+                message: USERS_MESSAGES.USER_NOT_FOUND,
+                status: HTTP_STATUS.NOT_FOUND
+              })
+            }
+            req.user = user
+            return true
+          }
+        }
+      }
+    },
+    ['body']
+  )
+)
+
+export const verifyForgotPasswordTokenValidator = validate(
+  checkSchema(
+    {
+      forgot_password_token: {
+        trim: true,
+        custom: {
+          options: async (value, { req }) => {
+            //kiểm tra người dùng có truyền lên forgot_password_token hay không
+            if (!value) {
+              throw new ErrorWithStatus({
+                message: USERS_MESSAGES.FORGOT_PASSWORD_TOKEN_IS_REQUIRED,
+                status: HTTP_STATUS.UNAUTHORIZED
+              })
+            }
+            try {
+              //verify forgot_password_token để lấy decoded_forgot_password_token
+              const decoded_forgot_password_token = await verifyToken({
+                token: value,
+                secretOrPublicKey: process.env.JWT_SECRET_FORGOT_PASSWORD_TOKEN
+              })
+              //sau khi verify thành công ta đc payload của email_verify_token: decoded_email_verify_token
+              req.decoded_forgot_password_token = decoded_forgot_password_token
+
+              const { user_id } = decoded_forgot_password_token
+              //dựa vào user_id tìm user
+              const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+              //nếu user === null thì ném lỗi 404
+              if (user === null) {
+                throw new ErrorWithStatus({
+                  message: USERS_MESSAGES.USER_NOT_FOUND,
+                  status: HTTP_STATUS.NOT_FOUND
+                })
+              }
+              if (user.forgot_password_token !== value) {
+                throw new ErrorWithStatus({
+                  message: USERS_MESSAGES.FORGOT_PASSWORD_TOKEN_IS_INCORRECT,
+                  status: HTTP_STATUS.UNAUTHORIZED
+                })
+              }
+            } catch (error) {
+              if (error instanceof JsonWebTokenError) {
+                //
+                throw new ErrorWithStatus({
+                  message: capitalize(error.message),
+                  status: HTTP_STATUS.UNAUTHORIZED
+                })
+              }
+              throw error
+            }
+            return true
+          }
+        }
+      }
+    },
+    ['body']
+  )
+)
+
+export const resetPasswordValidator = validate(
+  checkSchema(
+    {
+      password: passwordSchema,
+      confirm_password: confirmPasswordSchema
+    },
+    ['body']
+  )
+)
+
+export const verifiedUserValidator = (req, res, next) => {
+  const { verify } = req.decoded_authorization
+  if (verify !== UserVerifyStatus.Verified) {
+    return next(
+      new ErrorWithStatus({
+        message: USERS_MESSAGES.USER_IS_NOT_VERIFIED,
+        status: HTTP_STATUS.FORBIDDEN
+      })
+    )
+  }
+  next()
+}
+
+export const updateMeValidator = validate(
+  checkSchema(
+    {
+      name: {
+        optional: true, //đc phép có hoặc k
+        ...nameSchema, //phân rã nameSchema ra
+        notEmpty: undefined //ghi đè lên notEmpty của nameSchema
+      },
+      date_of_birth: {
+        optional: true, //đc phép có hoặc k
+        ...dateOfBirthSchema, //phân rã nameSchema ra
+        notEmpty: undefined //ghi đè lên notEmpty của nameSchema
+      },
+      bio: {
+        optional: true,
+        isString: {
+          errorMessage: USERS_MESSAGES.BIO_MUST_BE_A_STRING ////messages.ts thêm BIO_MUST_BE_A_STRING: 'Bio must be a string'
+        },
+        trim: true, //trim phát đặt cuối, nếu k thì nó sẽ lỗi validatior
+        isLength: {
+          options: {
+            min: 1,
+            max: 200
+          },
+          errorMessage: USERS_MESSAGES.BIO_LENGTH_MUST_BE_LESS_THAN_200 //messages.ts thêm BIO_LENGTH_MUST_BE_LESS_THAN_200: 'Bio length must be less than 200'
+        }
+      },
+      //giống bio
+      location: {
+        optional: true,
+        isString: {
+          errorMessage: USERS_MESSAGES.LOCATION_MUST_BE_A_STRING ////messages.ts thêm LOCATION_MUST_BE_A_STRING: 'Location must be a string'
+        },
+        trim: true,
+        isLength: {
+          options: {
+            min: 1,
+            max: 200
+          },
+          errorMessage: USERS_MESSAGES.LOCATION_LENGTH_MUST_BE_LESS_THAN_200 //messages.ts thêm LOCATION_LENGTH_MUST_BE_LESS_THAN_200: 'Location length must be less than 200'
+        }
+      },
+      //giống location
+      website: {
+        optional: true,
+        isString: {
+          errorMessage: USERS_MESSAGES.WEBSITE_MUST_BE_A_STRING ////messages.ts thêm WEBSITE_MUST_BE_A_STRING: 'Website must be a string'
+        },
+        trim: true,
+        isLength: {
+          options: {
+            min: 1,
+            max: 200
+          },
+
+          errorMessage: USERS_MESSAGES.WEBSITE_LENGTH_MUST_BE_LESS_THAN_200 //messages.ts thêm WEBSITE_LENGTH_MUST_BE_LESS_THAN_200: 'Website length must be less than 200'
+        }
+      },
+      username: {
+        optional: true,
+        isString: {
+          errorMessage: USERS_MESSAGES.USERNAME_MUST_BE_A_STRING ////messages.ts thêm USERNAME_MUST_BE_A_STRING: 'Username must be a string'
+        },
+        trim: true,
+        custom: {
+          options: async (value, { req }) => {
+            if (REGEX_USERNAME.test(value) === false) {
+              throw new Error(USERS_MESSAGES.USERNAME_MUST_BE_A_STRING)
+            }
+            //tìm user bằng cái username người dùng muốn cập nhật
+            const user = await databaseService.users.findOne({ username: value })
+
+            if (user) {
+              throw new Error(USERS_MESSAGES.USERNAME_ALREADY_EXISTS)
+            }
+            return true
+          }
+        }
+      },
+      avatar: imageSchema,
+      cover_photo: imageSchema
+    },
+    ['body']
   )
 )

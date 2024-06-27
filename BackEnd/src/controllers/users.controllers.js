@@ -70,3 +70,81 @@ export const emailVerifyTokenController = async (req, res) => {
     result
   })
 }
+
+export const resendEmailVerifyController = async (req, res) => {
+  //nếu vào đc đây có nghĩa là access_token hợp lệ
+  // và mình đã lấy đc decoded_authorization từ middleware
+  const { user_id } = req.decoded_authorization
+  //dựa vào user_id tìm user và xem thử nó đã verify email chưa
+  const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+  if (user === null) {
+    throw new ErrorWithStatus({
+      message: USERS_MESSAGES.USER_NOT_FOUND,
+      status: 404
+    })
+  }
+  //nếu đã verify rồi thì kh cần verify nữa
+  if (user.verify === UserVerifyStatus.Verified && user.email_verify_token === '') {
+    return res.json({
+      message: USERS_MESSAGES.EMAIL_ALREADY_VERIFIED_BEFORE
+    })
+  }
+  if (user.verify === UserVerifyStatus.Banned) {
+    throw new ErrorWithStatus({
+      message: USERS_MESSAGES.USER_BANNED,
+      status: HTTP_STATUS.FORBIDDEN
+    })
+  }
+  //user này thật sự chưa verify: mình sẽ tạo lại email_verify_token,
+  //cập nhật lại user
+  const email = user.email // lấy để biết email nào để quay resendEmail gửi lại
+  const result = await usersService.resendEmailVerify(user_id, email)
+  return res.json(result)
+}
+
+export const forgotPasswordController = async (req, res) => {
+  //lấy user_id từ user của req
+  const { _id, verify } = req.user
+  //dùng _id tìm và cập nhật lại user thêm vào forgot_password_token
+  const result = await usersService.forgotPassword({ user_id: _id.toString(), verify })
+  return res.json(result)
+}
+
+export const verifyForgotPasswordTokenController = async (req, res) => {
+  return res.json({
+    message: USERS_MESSAGES.VERIFY_FORGOT_PASSWORD_TOKEN_SUCCESS
+  })
+}
+
+export const resetPasswordController = async (req, res) => {
+  //muốn đổi mật khẩu thì cần user_id và password mới
+  const { user_id } = req.decoded_forgot_password_token
+  const { password } = req.body
+
+  //cập nhật
+  const result = await usersService.resetPassword({ user_id, password })
+  return res.json(result)
+}
+
+export const getMeController = async (req, res) => {
+  //muốn lấy profile của mình thì phải có user_id của mình
+  const { user_id } = req.decoded_authorization
+  //tìm user dựa vào user_id
+  const user = await usersService.getMe(user_id)
+  return res.json({
+    message: USERS_MESSAGES.GET_ME_SUCCESS,
+    result: user
+  })
+}
+
+export const updateMeController = async (req, res) => {
+  //muốn update profile của mình thì phải có user_id của mình
+  const { user_id } = req.decoded_authorization
+  const { body } = req
+  //update lại user
+  const result = await usersService.updateMe(user_id, body)
+  return res.json({
+    message: USERS_MESSAGES.UPDATE_ME_SUCCESS,
+    result
+  })
+}
