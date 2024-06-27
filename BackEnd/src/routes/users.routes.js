@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import {
   accessTokenValidator,
+  changePasswordValidator,
   emailVerifyTokenValidator,
   forgotPasswordValidator,
   loginValidator,
@@ -12,6 +13,7 @@ import {
   verifyForgotPasswordTokenValidator
 } from '../middlewares/users.middlewares.js'
 import {
+  changePasswordController,
   emailVerifyTokenController,
   forgotPasswordController,
   getMeController,
@@ -85,5 +87,20 @@ method: get
 không cần header vì, chưa đăng nhập cũng có thể xem
 */
 usersRouter.get('/:username', wrapAsync(getProfileController))
+
+/*
+  des: change password
+  path: '/change-password'
+  method: PUT
+  headers: {Authorization: Bearer <access_token>}
+  Body: {old_password: string, password: string, confirm_password: string}
+*/
+usersRouter.put(
+  '/change-password',
+  accessTokenValidator,
+  verifiedUserValidator,
+  changePasswordValidator,
+  wrapAsync(changePasswordController)
+)
 
 export default usersRouter

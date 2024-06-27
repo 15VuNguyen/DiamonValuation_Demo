@@ -158,3 +158,10 @@ export const getProfileController = async (req, res) => {
     result: user
   })
 }
+
+export const changePasswordController = async (req, res, next) => {
+  const { user_id } = req.decoded_authorization //lấy user_id từ decoded_authorization của access_token
+  const { password } = req.body //lấy old_password và password từ req.body
+  const result = await usersService.changePassword(user_id, password) //chưa code changePassword
+  return res.json(result)
+}
